@@ -2,16 +2,16 @@
 pragma solidity 0.8.12;
 
 import "../interfaces/AggregatorV3Interface.sol";
-import "../interfaces/ITRSY.sol";
+import "../interfaces/IERC20.sol";
 
 contract TokenPool{
-ITRSY public token;
+IERC20 public token;
 address public chainlinkfeed;
 uint256 public targetconcentration;
 AggregatorV3Interface public oracle;
 
 constructor (address _tokenAddress, address _chainlinkfeed, uint256 _targetconcentration)  {
-    token = ITRSY(_tokenAddress);
+    token = IERC20(_tokenAddress);
     chainlinkfeed = _chainlinkfeed;
     oracle = AggregatorV3Interface(_chainlinkfeed);
     targetconcentration = _targetconcentration;
