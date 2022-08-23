@@ -31,6 +31,10 @@ function getDepositValue(uint256 _amount) external view returns(uint256, uint256
     return (_amount * price / 10**18, targetconcentration);
 }
 
+function withdrawToken(address receiver, uint256 amount) external  {
+    bool success = token.transfer(receiver, amount);
+    require(success);
+}
 }
 
 

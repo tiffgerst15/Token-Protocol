@@ -6,6 +6,7 @@ import "../interfaces/ITRSY.sol";
 import "./TokenPool.sol";
 import "../interfaces/IRegistry.sol";
 import "../interfaces/ITokenPool.sol";
+import "./Registry.sol";
 
 
 contract Treasury {
@@ -79,7 +80,16 @@ constructor(
         uint256 trsyamt = TRSY.balanceOf(msg.sender);
         require(trsyamt >= _amount, "Not enough TRSY.");
         uint256 usdamt = getWithdrawAmount(_amount);
+        (address[] memory pools, uint256[] memory amt) = IRegistry(registry).tokensToWithdraw(usdamt);
         TRSY.burnFrom(msg.sender, _amount);
+        uint len = pools.length;
+        for (uint i; i<len;){
+            address pool = pools[i];
+            ITokenPool(pool).withdrawToken(msg.sender,amt[i]);
+            unchecked{++i;}
+        }
+        
+        
         
 
     }

@@ -14,24 +14,15 @@ address public factory;
 mapping (address => address) public tokenToPool;
 mapping (address => address) public PoolToToken;
 mapping (address => uint256) public PoolToConcentration;
-mapping(address => uint256) public poolToConcentrationDifference;
-mapping(address => uint256) public poolsToDecreaseConcentration;
+mapping(address => uint256) public poolsToDepositInto;
+mapping(address => uint256) public poolsToWithdrawFrom;
 uint256 constant PRECISION = 1e6;
 
-//Struct
-struct Pool {
-    address token;
-    address pool;
-    uint256 targetConcentration;
-    uint256 currentConcentration;
-    uint256 USDval;
-    uint256 balance;
-}
+
+//Structs
 struct Rebalancing {
     address pool;
-    uint256 concentrationDifference;
-    bool needsWithdraw;
-    bool needsDeposit;
+    uint256 amt;
 }
 
 //Errors
@@ -79,18 +70,6 @@ modifier onlyOwner() {
         return difference;
     }
 
-    // function getAllConcentrationDifferences() view public returns(uint256[] memory){
-    //     uint256[] storage differences;
-    //     uint256 len = tokenPools.length;
-    //     uint256 total = getTotalAUMinUSD();
-    //     for (uint i = 0; i < len;) {
-    //         address pool = tokenPools[i];
-    //         (uint256 poolBalance, uint256 target) = ITokenPool(pool).getPoolValue();            
-    //         uint256 difference = poolBalance*PRECISION/total - target;
-    //         differences[i] = difference;
-    //         unchecked{++i;}
-    //     }
-    // }
 
     function getTotalAUMinUSD() public view returns (uint256) {
         uint256 total = 0;
@@ -104,23 +83,119 @@ modifier onlyOwner() {
         return total;
     }
 
-    function createPoolStruct(address _pool) public returns(Pool memory){
-        Pool memory newPool;
-        newPool.token = PoolToToken[_pool];
-        newPool.pool = _pool;
-        newPool.currentConcentration = getConcentrationDifference(_pool);
-        (newPool.USDval,newPool.targetConcentration) = ITokenPool(_pool).getPoolValue();
-        newPool.balance = IERC20(PoolToToken[_pool]).balanceOf(_pool);
-
+    function tokensToWithdraw(uint256 _amount) external returns (address[] memory, uint256[] memory){
+        (address[] memory pools, uint256[] memory tokenAmt) = liquidityCheck(_amount);
+        //address[] memory tokens;
+        // uint len = pools.length;
+        // for (uint i; i<len;){
+        //     tokens[i] = PoolToToken[pools[i]];
+        // }
+        return (pools, tokenAmt);
     }
-    function createAllPoolStructs() public returns (Pool[] memory){
-        Pool[] memory pools;
-        uint256 len = tokenPools.length;
-        for (uint i = 0; i < len;) {
-            address pool = tokenPools[i];  
-            pools[i] = createPoolStruct(pool);
+
+    function findMax (Rebalancing[] memory _rebalance) internal pure returns (Rebalancing memory, uint256){ 
+        uint256 len = _rebalance.length;
+        uint max = 0;
+        uint index = 0;
+        for (uint i = 0; i<len;){
+            if (max < _rebalance[i].amt){
+                max = _rebalance[i].amt;
+                index = i;
+            }
             unchecked{++i;}
         }
-        return pools;
+        return (_rebalance[index],index);
     }
+
+    function liquidityCheck(uint256 _amount) internal  returns (address[] memory, uint256[] memory){
+        Rebalancing[] memory rebalance = getWithdrawRebalancing();
+        uint256 len = rebalance.length;
+        uint256 total = 0;
+        for (uint i = 0; i < len;){
+            total += rebalance[i].amt;
+            unchecked{++i;}
+        }
+        if (total < _amount) {
+            (address[] memory pool , uint256[] memory amt ) = WithdrawWhenLiquidityIsLower(_amount, total);
+            return (pool, amt);
+        }
+        else{
+            (address[] memory pool , uint256[] memory amt ) = WithdrawWhenLiquidityIsHigher(rebalance, _amount);
+            return (pool, amt);
+        }
+    }
+    function WithdrawWhenLiquidityIsHigher(Rebalancing[] memory _rebalance, uint256 _amount) internal pure returns(address[] memory, uint256[] memory) {
+        uint256 len = _rebalance.length;
+        address[] memory pool;
+        uint256[] memory tokenamt;
+        uint256 total = 0;
+        for (uint i; i<len;){
+            (Rebalancing memory max, uint index) = findMax(_rebalance);
+            if (total + max.amt > _amount){
+                tokenamt[i]= (_amount - total);
+                pool[i] = (max.pool);
+            }
+            else{
+                tokenamt[i] = (max.amt);
+                pool[i] = (max.pool);
+                total += max.amt;
+                 _rebalance[index].amt = 0;
+            }
+            unchecked{++i;}
+          
+        }
+        return (pool, tokenamt);
+    }
+       
+    function WithdrawWhenLiquidityIsLower(uint256 _amount, uint256 _total) internal view returns(address[] memory, uint256[] memory) {
+        uint256 len = tokenPools.length;
+        address[] memory pool;
+        uint256[] memory tokenamt;
+        uint256 remainder = _amount - _total;
+        uint256 liquidityPerPool = remainder/len;
+        for (uint i = 0; i<len;){
+            pool[i] = (tokenPools[i]);
+            tokenamt[i] = (poolsToWithdrawFrom[tokenPools[i]] + liquidityPerPool);
+            unchecked{++i;}
+        }
+        return (pool, tokenamt);
+    }
+
+    function getWithdrawRebalancing() internal returns(Rebalancing[] memory){
+        Rebalancing[] memory rebalance;
+        uint256 len = tokenPools.length;
+        for (uint i = 0; i < len;) {
+            address pools = tokenPools[i];
+            poolsToWithdrawFrom[pools] = 0;
+            uint256 concentrationDifference = getConcentrationDifference(pools);
+            if (concentrationDifference>0){
+                 (uint256 poolBalance, ) = ITokenPool(pools).getPoolValue();
+                uint256 tokenamt = (uint256(concentrationDifference) * poolBalance) /PRECISION;
+                rebalance[i] = Rebalancing({pool:pools, amt:tokenamt});
+                poolsToWithdrawFrom[pools] = concentrationDifference;
+            }
+           
+        unchecked{++i;}
+    }
+    return rebalance;
+    }
+    
+//     function SortPoolConcentrations(uint256 _amount) public{
+//         uint256 len = tokenPools.length;
+//         for (uint i = 0; i < len;) {
+//             address pool = tokenPools[i];
+//             uint256 difference = getConcentrationDifference(pool);
+//             poolsToDepositInto[pool] = 0;
+//             poolsToWithdrawFrom[pool] = 0;
+//             if (difference > 0) {
+//                 poolsToDepositInto[pool] = difference;
+//             } 
+//             if (difference < 0) {
+//                 poolsToWithdrawFrom[pool] = difference;
+//             }
+//             unchecked{++i;}
+//         }
+
+//     }
+// }
 }
