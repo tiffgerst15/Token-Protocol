@@ -1,7 +1,7 @@
 //SPDX-License-Identifier: MIT
 pragma solidity 0.8.12;
 import "./TokenPool.sol";
-import "./interfaces/IRegistry.sol";
+import "../interfaces/IRegistry.sol";
 
 contract TokenPoolFactory {
 
